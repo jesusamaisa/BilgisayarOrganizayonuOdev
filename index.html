@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RISC-V Pipeline Simülatörü</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>RISC-V Pipeline Simülatörü</h1>
+        <form method="POST">
+            <textarea name="code" placeholder="RISC-V komutlarını girin..." rows="8" required></textarea><br>
+            <button type="submit">Simüle Et</button>
+        </form>
+
+        {% if result %}
+            <h2>Simülasyon Sonuçları</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Komut</th>
+                        <th>Fetch</th>
+                        <th>Decode</th>
+                        <th>Execute</th>
+                        <th>Memory</th>
+                        <th>Write Back</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in result %}
+                        <tr>
+                            <td>{{ row.instruction }}</td>
+                            {% for stage in row.stages %}
+                                <td>Cycle {{ stage[1] }}</td>
+                            {% endfor %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+    </div>
+</body>
+</html>
