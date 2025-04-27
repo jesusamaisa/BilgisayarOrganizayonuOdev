@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pipeline Simülasyonu</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        table {
+            border-collapse: collapse;
+            margin-bottom: 30px;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: slideFade 0.5s forwards;
+        }
+        th, td { border: 2px solid #333; padding: 8px 16px; text-align: center; }
+        th { background-color: #e0e0e0; }
+        .stage {
+            background-color: #f0f0f0;
+            padding: 4px 8px;
+            margin: 2px;
+            border-radius: 5px;
+            display: inline-block;
+        }
+        .stall { background-color: #ffc0c0; }
+        @keyframes slideFade {
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>RISC-V Çok Çekirdekli Pipeline Simülasyonu</h1>
+
+<!-- Hız ve Core Seçimi -->
+<div class="mb-3">
+    <label for="speedSelect" class="form-label">Simülasyon Hızı:</label>
+    <select id="speedSelect" class="form-select w-25">
+        <option value="500">Hızlı</option>
+        <option value="1000" selected>Orta</option>
+        <option value="1500">Yavaş</option>
+    </select>
+</div>
+
+<div class="mb-3">
+    <label for="coreSelect" class="form-label">Çekirdek Sayısı:</label>
+    <select id="coreSelect" class="form-select w-25">
+        <option value="2" selected>2 Çekirdek</option>
+        <option value="4">4 Çekirdek</option>
+        <option value="8">8 Çekirdek</option>
+    </select>
+</div>
+
+<!-- Başlat ve Durdur Butonları -->
+<button id="startButton" class="btn btn-primary" onclick="startSimulation()">Simülasyonu Başlat</button>
+<button id="stopButton" class="btn btn-danger ms-2" style="display:none;" onclick="stopSim()">Simülasyonu Durdur</button>
+
+<!-- Spinner -->
+<div id="loadingSpinner" style="display:none; margin-top:20px;" class="text-center">
+    <div class="spinner-border text-primary" role="status"></div>
+    <p>Simülasyon Başlatılıyor...</p>
+</div>
+
+<!-- Progress -->
+<div id="progressContainer" class="progress mt-4" style="height: 30px; display: none;">
+    <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-info"
+         role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+</div>
+
+<div id="simulationResult"></div>
+
+<!-- Dashboard -->
+<div id="dashboardCards" class="row mt-5" style="display:none;"></div>
+
+<!-- Grafikler -->
+<div id="chartContainer" style="display:none; margin-top:40px;">
+    <h2>Grafikler</h2>
+    <canvas id="activityChart" height="150"></canvas>
+    <canvas id="stallChart" height="150" style="margin-top:40px;"></canvas>
+    <canvas id="stageChart" height="150" style="margin-top:40px;"></canvas>
+</div>
+
+<!-- İndir Butonları -->
+<div id="downloadButtons" style="display:none; margin-top:20px;">
+    <button class="btn btn-success me-2" onclick="downloadJSON()">JSON İndir</button>
+    <button class="btn btn-info" onclick="downloadCSV()">CSV İndir</button>
+</div>
+
+<script>
+    let stopSimulation = false;
+    let simulationData = null;
+    let activityChart, stallChart, stageChart;
+
+    function startSimulation() {
+        const resultDiv = document.getElementById('simulationResult');
+        const dashboardCards = document.getElementById('dashboardCards');
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const speedSelect = document.getElementById('speedSelect');
+        const coreSelect = document.getElementById('coreSelect');
+        const chartContainer = document.getElementById('chartContainer');
+        const downloadButtons = document.getElementById('downloadButtons');
+
+        const selectedSpeed = parseInt(speedSelect.value);
+        const selectedCoreCount = parseInt(coreSelect.value);
+
+        resultDiv.innerHTML = "";
+        dashboardCards.innerHTML = "";
+        dashboardCards.style.display = 'none';
+        chartContainer.style.display = 'none';
+        downloadButtons.style.display = 'none';
+        if (activityChart) activityChart.destroy();
+        if (stallChart) stallChart.destroy();
+        if (stageChart) stageChart.destroy();
+
+        stopSimulation = false;
+        startButton.disabled = true;
+        stopButton.style.display = 'inline-block';
+        startButton.textContent = "Simülasyon Devam Ediyor...";
+        loadingSpinner.style.display = 'block';
+        progressContainer.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressBar.textContent = '0%';
+
+        fetch(`/simulate?cores=${selectedCoreCount}`)
+            .then(response => response.json())
+            .then(data => {
+                simulationData = data;
+
+                let totalInstructions = {};
+                let totalStalls = {};
+                let stageUsage = { "Fetch": 0, "Decode": 0, "Execute": 0, "Memory": 0, "Writeback": 0 };
+                let cycleActivities = [];
+                let cycleStalls = [];
+
+                for (let core = 1; core <= selectedCoreCount; core++) {
+                    totalInstructions["core" + core] = 0;
+                    totalStalls["core" + core] = 0;
+                }
+
+                data.cycles.forEach((cycle, index) => {
+                    setTimeout(() => {
+                        if (stopSimulation) return;
+
+                        let tableHTML = `<h3>Cycle ${cycle.cycle}</h3><table class="table table-bordered table-striped"><tr>`;
+                        for (let core = 1; core <= selectedCoreCount; core++) {
+                            tableHTML += `<th>Core ${core}</th>`;
+                        }
+                        tableHTML += `</tr><tr>`;
+
+                        let activeStages = 0;
+                        let stallsInCycle = 0;
+
+                        for (let core = 1; core <= selectedCoreCount; core++) {
+                            const coreKey = "core" + core;
+                            if (cycle[coreKey]) {
+                                tableHTML += `<td>${cycle[coreKey].map(stage => formatStage(stage)).join('')}</td>`;
+                                cycle[coreKey].forEach(stage => {
+                                    if (stage === "STALL") {
+                                        totalStalls[coreKey]++;
+                                        stallsInCycle++;
+                                    } else if (stage) {
+                                        totalInstructions[coreKey]++;
+                                        if (stageUsage[stage] !== undefined) {
+                                            stageUsage[stage]++;
+                                        }
+                                        activeStages++;
+                                    }
+                                });
+                            } else {
+                                tableHTML += `<td>-</td>`;
+                            }
+                        }
+
+                        tableHTML += `</tr></table>`;
+                        resultDiv.innerHTML += tableHTML;
+                        cycleActivities.push(activeStages);
+                        cycleStalls.push(stallsInCycle);
+
+                        const progressPercent = Math.round(((index + 1) / data.cycles.length) * 100);
+                        progressBar.style.width = `${progressPercent}%`;
+                        progressBar.textContent = `${progressPercent}%`;
+
+                        if (index === data.cycles.length - 1) {
+                            setTimeout(() => {
+                                if (stopSimulation) return;
+
+                                startButton.disabled = false;
+                                startButton.textContent = "Simülasyonu Yeniden Başlat";
+                                stopButton.style.display = 'none';
+                                loadingSpinner.style.display = 'none';
+                                downloadButtons.style.display = 'block';
+                                dashboardCards.style.display = 'flex';
+                                chartContainer.style.display = 'block';
+
+                                createDashboardCards(totalInstructions, totalStalls);
+                                drawCharts(cycleActivities, cycleStalls, stageUsage);
+
+                                confetti({ particleCount: 300, spread: 100, origin: { y: 0.6 } });
+                            }, 500);
+                        }
+                    }, index * selectedSpeed);
+                });
+            });
+    }
+
+    function createDashboardCards(totalInstructions, totalStalls) {
+        const dashboard = document.getElementById('dashboardCards');
+        dashboard.innerHTML = "";
+
+        for (const core in totalInstructions) {
+            dashboard.innerHTML += `
+            <div class="col-md-4 mb-3">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        ${core.toUpperCase()} Özeti
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Toplam Instruction:</strong> ${totalInstructions[core]}</p>
+                        <p><strong>Toplam Stall:</strong> ${totalStalls[core]}</p>
+                        <p><strong>IPC:</strong> ${(totalInstructions[core] / simulationData.cycles.length).toFixed(2)}</p>
+                    </div>
+                </div>
+            </div>`;
+        }
+    }
+
+    function drawCharts(cycleActivities, cycleStalls, stageUsage) {
+        const ctx1 = document.getElementById('activityChart').getContext('2d');
+        activityChart = new Chart(ctx1, {
+            type: 'line',
+            data: {
+                labels: cycleActivities.map((_, idx) => `Cycle ${idx + 1}`),
+                datasets: [{
+                    label: 'Aktif Stage Sayısı',
+                    data: cycleActivities,
+                    borderColor: 'rgb(75, 192, 192)',
+                    tension: 0.3,
+                    fill: false
+                }]
+            }
+        });
+
+        const ctx2 = document.getElementById('stallChart').getContext('2d');
+        stallChart = new Chart(ctx2, {
+            type: 'line',
+            data: {
+                labels: cycleStalls.map((_, idx) => `Cycle ${idx + 1}`),
+                datasets: [{
+                    label: 'Cycle Başına Stall Sayısı',
+                    data: cycleStalls,
+                    borderColor: 'rgb(255, 99, 132)',
+                    tension: 0.3,
+                    fill: false
+                }]
+            }
+        });
+
+        const ctx3 = document.getElementById('stageChart').getContext('2d');
+        stageChart = new Chart(ctx3, {
+            type: 'bar',
+            data: {
+                labels: Object.keys(stageUsage),
+                datasets: [{
+                    label: 'Pipeline Aşama Kullanımı',
+                    data: Object.values(stageUsage),
+                    backgroundColor: 'rgb(54, 162, 235)'
+                }]
+            }
+        });
+    }
+
+    function stopSim() {
+        stopSimulation = true;
+        document.getElementById('startButton').disabled = false;
+        document.getElementById('startButton').textContent = "Simülasyonu Yeniden Başlat";
+        document.getElementById('stopButton').style.display = 'none';
+        document.getElementById('loadingSpinner').style.display = 'none';
+    }
+
+    function downloadJSON() {
+        if (!simulationData) return;
+        const blob = new Blob([JSON.stringify(simulationData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'simulation_result.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function downloadCSV() {
+        if (!simulationData) return;
+        let csv = 'Cycle,' + Object.keys(simulationData.cycles[0]).filter(k => k.startsWith('core')).join(',') + '\n';
+        simulationData.cycles.forEach(cycle => {
+            let line = `${cycle.cycle}`;
+            Object.keys(cycle).forEach(key => {
+                if (key.startsWith('core')) {
+                    line += ',"' + (cycle[key] ? cycle[key].join('|') : '') + '"';
+                }
+            });
+            csv += line + '\n';
+        });
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'simulation_result.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function formatStage(stage) {
+        if (stage === "STALL") {
+            return `<div class="stage stall" title="Pipeline bekliyor">${stage}</div>`;
+        }
+        return `<div class="stage">${stage}</div>`;
+    }
+</script>
+
+</body>
+</html>
