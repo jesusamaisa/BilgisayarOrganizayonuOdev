@@ -83,6 +83,9 @@ class Disassembler:
     def parse(self, filename):
         with open(filename, "w") as f:
             f.write(self.ntr)
+    def get_txt(self,filename):
+        with open(filename, "w") as f:
+            f.write(self.source)
 
 # Setup
 # output_dir = "output"
@@ -119,6 +122,7 @@ while True:
             cv2.imwrite(face_path, face_img)
             Face=Disassembler(source1,"Face")
             Face.create_dir()
+            Face.get_txt("Face/0face_source.txt")
             Face.byteCode("Face/2face_bytecode.txt")
             Face.parse("Face/1face_parse.txt")
             output_file = 'Face/3face_hex.txt'
@@ -136,6 +140,7 @@ while True:
                 cv2.imwrite(eye_path, eye_img)
                 Eye = Disassembler(source2,"Eye")
                 Eye.create_dir()
+                Eye.get_txt("Eye/0eye_source.txt")
                 Eye.byteCode("Eye/2eye_bytecode.txt")
                 Eye.parse("Eye/1eye_parse.txt")
                 output_file = 'Eye/3eye_hex.txt'
@@ -154,6 +159,7 @@ while True:
                 cv2.imwrite(mouth_path, mouth_img)
                 Mouth = Disassembler(source3,"Mouth")
                 Mouth.create_dir()
+                Mouth.get_txt("Mouth/0mouth_source.txt")
                 Mouth.byteCode("Mouth/2mouth_bytecode.txt")
                 Mouth.parse("Mouth/1mouth_parse.txt")
                 output_file = 'Mouth/3mouth_hex.txt'
